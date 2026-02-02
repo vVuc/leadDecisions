@@ -7,7 +7,10 @@ import com.nology.leaddecisions.etl.domain.models.MarketEntity;
 import com.nology.leaddecisions.etl.domain.models.ObjectiveEntity;
 import com.nology.leaddecisions.etl.domain.models.SizeEntity;
 import com.nology.leaddecisions.etl.domain.models.SourceEntity;
+import com.nology.leaddecisions.etl.domain.ports.ExtractDataDocumentUseCase;
 import com.nology.leaddecisions.etl.domain.repositories.*;
+import com.nology.leaddecisions.etl.infraestructure.excel.ExcelHelper;
+import com.nology.leaddecisions.etl.infraestructure.excel.LeadExcelSchema;
 import lombok.AllArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Service;
@@ -16,47 +19,15 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.text.Normalizer;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @Service
 @Transactional
 @AllArgsConstructor
-public class ExtractDataDocumentService {
-    private static final String SHEET_BASE = "BASE";
-    private static final String SHEET_ORIGEM = "ORIGEM";
-    private static final String SHEET_LOCAL = "LOCAL";
-    private static final String SHEET_PORTE = "PORTE";
-    private static final String SHEET_OBJETIVO = "OBJETIVO";
-    private static final String SHEET_MERCADO = "MERCADO";
-
-    private static final String COL_LEAD_ID = "LEAD_ID";
-    private static final String COL_DATA_CADASTRO = "DATA CADASTRO";
-    private static final String COL_VENDIDO = "VENDIDO";
-    private static final String COL_MERCADO = "MERCADO";
-    private static final String COL_ORIGEM = "ORIGEM";
-    private static final String COL_SUB_ORIGEM = "SUB-ORIGEM";
-    private static final String COL_LOCAL = "LOCAL";
-    private static final String COL_PORTE = "PORTE";
-    private static final String COL_OBJETIVO = "OBJETIVO";
-
-    private static final List<DateTimeFormatter> DATE_TIME_FORMATS = List.of(
-            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"),
-            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"),
-            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
-            DateTimeFormatter.ofPattern("yyyy-MM-dd")
-    );
-
+public class ExtractDataDocumentService implements ExtractDataDocumentUseCase {
     private final LeadRepository leadRepository;
     private final DocumentRepository documentRepository;
     private final MarketRepository marketRepository;
@@ -64,6 +35,7 @@ public class ExtractDataDocumentService {
     private final LocationRepository locationRepository;
     private final SizeRepository sizeRepository;
     private final ObjectiveRepository objectiveRepository;
+    private final ExcelHelper excelHelper;
 
     public void extract(MultipartFile file) {
        DocumentEntity documentEntity = buildDocumentEntity(file);
@@ -116,11 +88,11 @@ public class ExtractDataDocumentService {
             Map<String, LeadEntity> leads,
             DocumentEntity documentEntity
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_BASE);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int createdAtIndex = requireHeader(headers, COL_DATA_CADASTRO);
-        int soldIndex = requireHeader(headers, COL_VENDIDO);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.BASE);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int createdAtIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.DATA_CADASTRO);
+        int soldIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.VENDIDO);
 
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
@@ -128,15 +100,15 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = new LeadEntity();
             lead.setDocument(documentEntity);
-            lead.setCreatedAt(getCellDateTime(row, createdAtIndex, formatter, rowIndex));
-            lead.setSold(parseSold(getCellString(row, soldIndex, formatter,evaluator)));
+            lead.setCreatedAt(excelHelper.getCellDateTime(row, createdAtIndex, formatter, rowIndex));
+            lead.setSold(excelHelper.parseSold(excelHelper.getCellString(row, soldIndex, formatter,evaluator)));
             leads.put(leadId.trim(), lead);
         }
     }
@@ -148,25 +120,27 @@ public class ExtractDataDocumentService {
             Map<String, LeadEntity> leads,
             List<MarketEntity> markets
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_MERCADO);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int marketIndex = requireHeader(headers, COL_MERCADO);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.MERCADO);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int marketIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.MERCADO);
 
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
             if (row == null) {
+
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String marketName = getCellString(row, marketIndex, formatter,evaluator);
+            String marketName = excelHelper.getCellString(row, marketIndex, formatter,evaluator);
             if (marketName != null && !marketName.isBlank()) {
+
                 MarketEntity market = new MarketEntity();
                 market.setName(marketName.trim());
                 market.setLead(lead);
@@ -181,11 +155,11 @@ public class ExtractDataDocumentService {
             FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_ORIGEM);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int origemIndex = requireHeader(headers, COL_ORIGEM);
-        int subOrigemIndex = requireHeader(headers, COL_SUB_ORIGEM);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.ORIGEM);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int origemIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.ORIGEM);
+        int subOrigemIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.SUB_ORIGEM);
 
         List<SourceEntity> sources = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -194,20 +168,20 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String origin = getCellString(row, origemIndex, formatter,evaluator);
+            String origin = excelHelper.getCellString(row, origemIndex, formatter,evaluator);
             if (origin == null || origin.isBlank()) {
                 continue;
             }
 
             SourceEntity source = new SourceEntity();
             source.setName(origin.trim());
-            source.setSubSource(getCellString(row, subOrigemIndex, formatter,evaluator));
+            source.setSubSource(excelHelper.getCellString(row, subOrigemIndex, formatter,evaluator));
             source.setLead(lead);
             sources.add(source);
         }
@@ -220,10 +194,10 @@ public class ExtractDataDocumentService {
             FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_LOCAL);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int localIndex = requireHeader(headers, COL_LOCAL);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.LOCAL);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int localIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LOCAL);
 
         List<LocationEntity> locations = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -232,13 +206,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String localName = getCellString(row, localIndex, formatter,evaluator);
+            String localName = excelHelper.getCellString(row, localIndex, formatter,evaluator);
             if (localName == null || localName.isBlank()) {
                 continue;
             }
@@ -257,10 +231,10 @@ public class ExtractDataDocumentService {
             FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_PORTE);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int sizeIndex = requireHeader(headers, COL_PORTE);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.PORTE);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int sizeIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.PORTE);
 
         List<SizeEntity> sizes = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -269,13 +243,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String sizeRange = getCellString(row, sizeIndex, formatter,evaluator);
+            String sizeRange = excelHelper.getCellString(row, sizeIndex, formatter,evaluator);
             if (sizeRange == null || sizeRange.isBlank()) {
                 continue;
             }
@@ -294,10 +268,10 @@ public class ExtractDataDocumentService {
             FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
-        Sheet sheet = requireSheet(workbook, SHEET_OBJETIVO);
-        Map<String, Integer> headers = buildHeaderMap(sheet, formatter);
-        int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
-        int objectiveIndex = requireHeader(headers, COL_OBJETIVO);
+        Sheet sheet = excelHelper.requireSheet(workbook, LeadExcelSchema.Sheets.OBJETIVO);
+        Map<String, Integer> headers = excelHelper.buildHeaderMap(sheet, formatter);
+        int leadIdIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.LEAD_ID);
+        int objectiveIndex = excelHelper.requireHeader(headers, LeadExcelSchema.Columns.OBJETIVO);
 
         List<ObjectiveEntity> objectives = new ArrayList<>();
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
@@ -306,13 +280,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
+            String leadId = excelHelper.getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String description = getCellString(row, objectiveIndex, formatter,evaluator);
+            String description = excelHelper.getCellString(row, objectiveIndex, formatter,evaluator);
             if (description == null || description.isBlank()) {
                 continue;
             }
@@ -333,114 +307,6 @@ public class ExtractDataDocumentService {
         return lead;
     }
 
-    private Sheet requireSheet(Workbook workbook, String name) {
-        Sheet sheet = workbook.getSheet(name);
-        if (sheet != null) {
-            return sheet;
-        }
-        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
-            Sheet candidate = workbook.getSheetAt(i);
-            if (candidate.getSheetName().equalsIgnoreCase(name)) {
-                return candidate;
-            }
-        }
-        throw new IllegalArgumentException("Missing sheet: " + name);
-    }
-
-    private Map<String, Integer> buildHeaderMap(Sheet sheet, DataFormatter formatter) {
-        Row headerRow = sheet.getRow(0);
-        if (headerRow == null) {
-            throw new IllegalArgumentException("Missing header row in sheet: " + sheet.getSheetName());
-        }
-
-        Map<String, Integer> headers = new HashMap<>();
-        for (Cell cell : headerRow) {
-            String header = formatter.formatCellValue(cell);
-            if (header != null && !header.isBlank()) {
-                headers.put(normalizeHeader(header), cell.getColumnIndex());
-            }
-        }
-        return headers;
-    }
-
-    private int requireHeader(Map<String, Integer> headers, String headerName) {
-        Integer index = headers.get(normalizeHeader(headerName));
-        if (index == null) {
-            throw new IllegalArgumentException("Missing column: " + headerName);
-        }
-        return index;
-    }
-
-    private String getCellString(Row row, int index, DataFormatter formatter,FormulaEvaluator evaluator) {
-        Cell cell = row.getCell(index);
-        if (cell == null) {
-            return null;
-        }
-        String value = formatter.formatCellValue(cell, evaluator);
-        return value == null ? null : value.trim();
-    }
-
-    private LocalDateTime getCellDateTime(Row row, int index, DataFormatter formatter, int rowIndex) {
-        Cell cell = row.getCell(index);
-        if (cell == null) {
-            return null;
-        }
-        if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
-            return cell.getLocalDateTimeCellValue();
-        }
-
-        String value = formatter.formatCellValue(cell);
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-
-        LocalDateTime parsed = parseDateTime(value.trim());
-        if (parsed == null) {
-            throw new IllegalArgumentException("Invalid date in BASE at row " + (rowIndex + 1) + ": " + value);
-        }
-        return parsed;
-    }
-
-    private LocalDateTime parseDateTime(String value) {
-        for (DateTimeFormatter formatter : DATE_TIME_FORMATS) {
-            try {
-                return LocalDateTime.parse(value, formatter);
-            } catch (DateTimeParseException ignored) {
-                try {
-                    LocalDate date = LocalDate.parse(value, formatter);
-                    return date.atStartOfDay();
-                } catch (DateTimeParseException ignoredDate) {
-                    // Try next pattern.
-                }
-            }
-        }
-        return null;
-    }
-
-    private Boolean parseSold(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String normalized = normalizeValue(value);
-        if (normalized.equals("SIM") || normalized.equals("S") || normalized.equals("TRUE") || normalized.equals("1")) {
-            return true;
-        }
-        if (normalized.equals("NAO") || normalized.equals("N") || normalized.equals("FALSE") || normalized.equals("0")) {
-            return false;
-        }
-        return null;
-    }
-
-    private String normalizeHeader(String value) {
-        return normalizeValue(value).replaceAll("\\s+", " ");
-    }
-
-    private String normalizeValue(String value) {
-        String trimmed = value.trim();
-        String normalized = Normalizer.normalize(trimmed, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}", "");
-        return normalized.toUpperCase(Locale.ROOT);
-    }
 
     private DocumentEntity buildDocumentEntity(MultipartFile file) {
         if (file == null || file.isEmpty()) {
