@@ -3,7 +3,6 @@ package com.nology.leaddecisions.etl.infraestructure.service;
 import com.nology.leaddecisions.etl.domain.models.DocumentEntity;
 import com.nology.leaddecisions.etl.domain.repositories.*;
 import com.nology.leaddecisions.etl.infraestructure.excel.ExcelHelper;
-import lombok.AllArgsConstructor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

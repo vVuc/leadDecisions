@@ -22,7 +22,6 @@ public class AnalyticsController {
      */
     @GetMapping("/report")
     public ResponseEntity<MarketingReport> getFullAnalyticsReport() {
-        // O Controller delega a orquestração para o Service, que aplica as regras (RN03, RN04, RN07)
         MarketingReport report = analyticsService.generateFullReport();
         return ResponseEntity.ok(report);
     }
