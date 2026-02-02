@@ -12,6 +12,7 @@ public class LocationEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "Nome")
     private String name;
 
     @ManyToOne

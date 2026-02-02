@@ -9,15 +9,7 @@ import com.nology.leaddecisions.etl.domain.models.SizeEntity;
 import com.nology.leaddecisions.etl.domain.models.SourceEntity;
 import com.nology.leaddecisions.etl.domain.repositories.*;
 import lombok.AllArgsConstructor;
-import lombok.NoArgsConstructor;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellType;
-import org.apache.poi.ss.usermodel.DataFormatter;
-import org.apache.poi.ss.usermodel.DateUtil;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -80,34 +72,35 @@ public class ExtractDataDocumentService {
         try (InputStream inputStream = file.getInputStream();
              Workbook workbook = WorkbookFactory.create(inputStream)) {
             DataFormatter formatter = new DataFormatter();
+            FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
 
             Map<String, LeadEntity> leads = new HashMap<>();
             List<MarketEntity> markets = new ArrayList<>();
 
-            readBaseSheet(workbook, formatter, leads, markets,documentEntity);
+            readBaseSheet(workbook, formatter, evaluator, leads,documentEntity);
             leadRepository.saveAll(leads.values());
 
-            readMarketSheet(workbook, formatter, leads, markets);
+            readMarketSheet(workbook, formatter, evaluator, leads, markets);
             if (!markets.isEmpty()) {
                 marketRepository.saveAll(markets);
             }
 
-            List<SourceEntity> sources = readSourceSheet(workbook, formatter, leads);
+            List<SourceEntity> sources = readSourceSheet(workbook, formatter, evaluator, leads);
             if (!sources.isEmpty()) {
                 sourceRepository.saveAll(sources);
             }
 
-            List<LocationEntity> locations = readLocationSheet(workbook, formatter, leads);
+            List<LocationEntity> locations = readLocationSheet(workbook, formatter, evaluator, leads);
             if (!locations.isEmpty()) {
                 locationRepository.saveAll(locations);
             }
 
-            List<SizeEntity> sizes = readSizeSheet(workbook, formatter, leads);
+            List<SizeEntity> sizes = readSizeSheet(workbook, formatter, evaluator, leads);
             if (!sizes.isEmpty()) {
                 sizeRepository.saveAll(sizes);
             }
 
-            List<ObjectiveEntity> objectives = readObjectiveSheet(workbook, formatter, leads);
+            List<ObjectiveEntity> objectives = readObjectiveSheet(workbook, formatter, evaluator, leads);
             if (!objectives.isEmpty()) {
                 objectiveRepository.saveAll(objectives);
             }
@@ -119,8 +112,8 @@ public class ExtractDataDocumentService {
     private void readBaseSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads,
-            List<MarketEntity> markets,
             DocumentEntity documentEntity
     ) {
         Sheet sheet = requireSheet(workbook, SHEET_BASE);
@@ -128,7 +121,6 @@ public class ExtractDataDocumentService {
         int leadIdIndex = requireHeader(headers, COL_LEAD_ID);
         int createdAtIndex = requireHeader(headers, COL_DATA_CADASTRO);
         int soldIndex = requireHeader(headers, COL_VENDIDO);
-        int marketIndex = requireHeader(headers, COL_MERCADO);
 
         for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
             Row row = sheet.getRow(rowIndex);
@@ -136,7 +128,7 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
@@ -144,22 +136,15 @@ public class ExtractDataDocumentService {
             LeadEntity lead = new LeadEntity();
             lead.setDocument(documentEntity);
             lead.setCreatedAt(getCellDateTime(row, createdAtIndex, formatter, rowIndex));
-            lead.setSold(parseSold(getCellString(row, soldIndex, formatter)));
+            lead.setSold(parseSold(getCellString(row, soldIndex, formatter,evaluator)));
             leads.put(leadId.trim(), lead);
-
-            String marketName = getCellString(row, marketIndex, formatter);
-            if (marketName != null && !marketName.isBlank()) {
-                MarketEntity market = new MarketEntity();
-                market.setName(marketName.trim());
-                market.setLead(lead);
-                markets.add(market);
-            }
         }
     }
 
     private void readMarketSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads,
             List<MarketEntity> markets
     ) {
@@ -174,13 +159,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String marketName = getCellString(row, marketIndex, formatter);
+            String marketName = getCellString(row, marketIndex, formatter,evaluator);
             if (marketName != null && !marketName.isBlank()) {
                 MarketEntity market = new MarketEntity();
                 market.setName(marketName.trim());
@@ -193,6 +178,7 @@ public class ExtractDataDocumentService {
     private List<SourceEntity> readSourceSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
         Sheet sheet = requireSheet(workbook, SHEET_ORIGEM);
@@ -208,20 +194,20 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String origin = getCellString(row, origemIndex, formatter);
+            String origin = getCellString(row, origemIndex, formatter,evaluator);
             if (origin == null || origin.isBlank()) {
                 continue;
             }
 
             SourceEntity source = new SourceEntity();
             source.setName(origin.trim());
-            source.setSubSource(getCellString(row, subOrigemIndex, formatter));
+            source.setSubSource(getCellString(row, subOrigemIndex, formatter,evaluator));
             source.setLead(lead);
             sources.add(source);
         }
@@ -231,6 +217,7 @@ public class ExtractDataDocumentService {
     private List<LocationEntity> readLocationSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
         Sheet sheet = requireSheet(workbook, SHEET_LOCAL);
@@ -245,13 +232,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String localName = getCellString(row, localIndex, formatter);
+            String localName = getCellString(row, localIndex, formatter,evaluator);
             if (localName == null || localName.isBlank()) {
                 continue;
             }
@@ -267,6 +254,7 @@ public class ExtractDataDocumentService {
     private List<SizeEntity> readSizeSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
         Sheet sheet = requireSheet(workbook, SHEET_PORTE);
@@ -281,13 +269,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String sizeRange = getCellString(row, sizeIndex, formatter);
+            String sizeRange = getCellString(row, sizeIndex, formatter,evaluator);
             if (sizeRange == null || sizeRange.isBlank()) {
                 continue;
             }
@@ -303,6 +291,7 @@ public class ExtractDataDocumentService {
     private List<ObjectiveEntity> readObjectiveSheet(
             Workbook workbook,
             DataFormatter formatter,
+            FormulaEvaluator evaluator,
             Map<String, LeadEntity> leads
     ) {
         Sheet sheet = requireSheet(workbook, SHEET_OBJETIVO);
@@ -317,13 +306,13 @@ public class ExtractDataDocumentService {
                 continue;
             }
 
-            String leadId = getCellString(row, leadIdIndex, formatter);
+            String leadId = getCellString(row, leadIdIndex, formatter,evaluator);
             if (leadId == null || leadId.isBlank()) {
                 continue;
             }
 
             LeadEntity lead = findLead(leads, leadId);
-            String description = getCellString(row, objectiveIndex, formatter);
+            String description = getCellString(row, objectiveIndex, formatter,evaluator);
             if (description == null || description.isBlank()) {
                 continue;
             }
@@ -382,12 +371,12 @@ public class ExtractDataDocumentService {
         return index;
     }
 
-    private String getCellString(Row row, int index, DataFormatter formatter) {
+    private String getCellString(Row row, int index, DataFormatter formatter,FormulaEvaluator evaluator) {
         Cell cell = row.getCell(index);
         if (cell == null) {
             return null;
         }
-        String value = formatter.formatCellValue(cell);
+        String value = formatter.formatCellValue(cell, evaluator);
         return value == null ? null : value.trim();
     }
 
