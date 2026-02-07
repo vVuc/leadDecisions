@@ -1,8 +1,9 @@
 package com.nology.leaddecisions.etl.infraestructure.service;
 
-import com.nology.leaddecisions.etl.domain.models.DocumentEntity;
-import com.nology.leaddecisions.etl.domain.repositories.*;
-import com.nology.leaddecisions.etl.infraestructure.excel.ExcelHelper;
+import com.nology.leaddecisions.adapters.outbound.repositories.*;
+import com.nology.leaddecisions.application.service.ExtractDataDocumentService;
+import com.nology.leaddecisions.domain.models.DocumentEntity;
+import com.nology.leaddecisions.infraestructure.excel.ExcelHelper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
